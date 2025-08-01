@@ -1,0 +1,22 @@
+Private WithEvents calItems As Outlook.Items
+
+Private Sub Application_Startup()
+    Dim Ns As Outlook.NameSpace
+    Set Ns = Application.GetNamespace("MAPI")
+    Set calItems = Ns.GetDefaultFolder(olFolderCalendar).Items
+End Sub
+
+Private Sub calItems_ItemAdd(ByVal Item As Object)
+    On Error Resume Next
+    If TypeOf Item Is Outlook.AppointmentItem Then
+        Dim appt As Outlook.AppointmentItem
+        Set appt = Item
+
+        ' Only apply to meetings where you are NOT the organizer
+        If appt.MeetingStatus = olMeeting And appt.Organizer <> Application.Session.CurrentUser Then
+            appt.ReminderSet = True
+            appt.ReminderMinutesBeforeStart = 15 ' Change to your preferred value
+            appt.Save
+        End If
+    End If
+End Sub
