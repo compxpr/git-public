@@ -1,0 +1,465 @@
+' ===========================
+' Visio VBA – Auto Diagrammer
+' Scott: paste into a new Module (Visio -> Developer -> Visual Basic -> Insert -> Module)
+' Run GenerateWorkflow or GenerateTimeline
+' ===========================
+
+Option Explicit
+
+' ==== CONFIG (edit to taste) ====
+Private Const PAGE_WIDTH_IN As Double = 8.5
+Private Const PAGE_HEIGHT_IN As Double = 11#
+Private Const MARGIN_IN As Double = 1#
+Private Const CONTENT_W_IN As Double = PAGE_WIDTH_IN - 2 * MARGIN_IN
+Private Const CONTENT_H_IN As Double = PAGE_HEIGHT_IN - 2 * MARGIN_IN
+
+' Font sizes
+Private Const FS_HDR As Integer = 18
+Private Const FS_PROC As Integer = 16
+Private Const FS_DEC As Integer = 18
+Private Const FS_TERM As Integer = 18
+Private Const FS_LABEL As Integer = 14
+Private Const FS_CALLOUT As Integer = 12
+Private Const FS_LEGEND As Integer = 12
+Private Const FS_LEGEND_HDR As Integer = 14
+
+' Shape sizes (inches) – capped to fit inside one lane
+Private Const W_TERM As Double = 1.16 ' ≈ 112 px @96 dpi
+Private Const H_TERM As Double = 0.75
+Private Const W_PROC As Double = 1.20 ' ≈ 116 px
+Private Const H_PROC As Double = 0.75
+Private Const W_DEC As Double = 1.20
+Private Const H_DEC As Double = 1.20
+
+Private Const LANE_HDR_H As Double = 0.5
+Private Const V_GAP As Double = 0.40
+Private Const H_GAP As Double = 0.25
+
+' Colors (Visio uses RGB)
+Private Const RGB_LANE_BG As Long = &HF3F3F3
+Private Const RGB_LANE_HDR As Long = &HE0E0E0
+Private Const RGB_BORDER As Long = &H000000
+Private Const RGB_PROC As Long = &HADD8E6
+Private Const RGB_SYS As Long = &HB7E3B7
+Private Const RGB_DEC As Long = &H99FFFF
+Private Const RGB_TERM As Long = &HD9D9D9
+Private Const RGB_WHITE As Long = &HFFFFFF
+
+' ==== Entry points ====
+Public Sub GenerateWorkflow()
+    Dim lanes() As String
+    lanes = Split("Requestor (User)|ServiceNow|Automation Platform|CMDB / Inventory|Approvers", "|")
+    
+    ' Shapes: Type, LaneIndex (1-based), Y row index (we’ll compute inches), Text, Callout, IsSystemColor
+    ' RowIndex is just an ordinal we convert to Y; keep simple → row 1 under headers, etc.
+    Dim steps()
+    steps = Array( _
+        StepRow("TERM", 1, 1, "Start", 1, False), _
+        StepRow("PROC", 1, 2, "Submit VM Request", 2, False), _
+        StepRow("PROC", 2, 2, "Validate Form & Policy", 3, False), _
+        StepRow("DEC",  2, 3, "Approval Needed?", 4, False), _
+        StepRow("PROC", 5, 3, "Review & Approve", 5, False), _
+        StepRow("PROC", 2, 4, "Create Work Order", 6, False), _
+        StepRow("PROC", 3, 4, "Provision VM", 7, True), _
+        StepRow("PROC", 3, 5, "Assign IP / DNS", 8, True), _
+        StepRow("PROC", 4, 5, "Create/Update CI & Relationships", 9, True), _
+        StepRow("PROC", 2, 5, "Notify Requestor", 10, False), _
+        StepRow("TERM", 1, 6, "End", 11, False) _
+    )
+    
+    ' Connectors: FromIdx, ToIdx, Label
+    Dim conns()
+    conns = Array( _
+        ConnRow(1, 2, ""), _
+        ConnRow(2, 3, ""), _
+        ConnRow(3, 4, ""), _
+        ConnRow(4, 5, "Yes"), _
+        ConnRow(4, 6, "No"), _
+        ConnRow(6, 7, ""), _
+        ConnRow(7, 8, ""), _
+        ConnRow(8, 9, ""), _
+        ConnRow(6, 10, ""), _
+        ConnRow(10, 2, "Notify"), _
+        ConnRow(2, 11, "") _
+    )
+    
+    BuildPage "Workflow Swimlane Diagram-13", lanes, steps, conns, True
+End Sub
+
+Public Sub GenerateTimeline()
+    ' Two horizontal lanes
+    Dim lanes() As String
+    lanes = Split("Requestor (User)|System (SN + Platform)", "|")
+    
+    Dim steps()
+    steps = Array( _
+        StepRow("PROC", 1, 1, "Submit Request", 1, False), _
+        StepRow("PROC", 2, 1, "Validate / Triage", 2, False), _
+        StepRow("DEC",  2, 2, "Approval Needed?", 3, False), _
+        StepRow("PROC", 1, 2, "Approve", 4, False), _
+        StepRow("PROC", 2, 2, "Provision VM", 5, True), _
+        StepRow("PROC", 2, 2, "Assign IP/DNS", 6, True), _
+        StepRow("PROC", 2, 2, "CMDB Update", 7, True), _
+        StepRow("PROC", 1, 2, "Notification", 8, False), _
+        StepRow("TERM", 1, 2, "End", 9, False) _
+    )
+    
+    Dim conns()
+    conns = Array( _
+        ConnRow(1, 2, ""), _
+        ConnRow(2, 3, ""), _
+        ConnRow(3, 4, "Yes"), _
+        ConnRow(3, 5, "No"), _
+        ConnRow(5, 6, ""), _
+        ConnRow(6, 7, ""), _
+        ConnRow(7, 8, "Notify"), _
+        ConnRow(8, 9, "") _
+    )
+    
+    BuildPage "User-Automation Timeline-28", lanes, steps, conns, False
+End Sub
+
+' ==== Data helpers ====
+Private Type StepDef
+    SType As String
+    Lane As Integer
+    Row As Integer
+    Caption As String
+    Callout As Integer
+    IsSystem As Boolean
+    ' Runtime handles:
+    ShapeID As Long
+End Type
+
+Private Type ConnDef
+    FromIndex As Integer
+    ToIndex As Integer
+    LabelText As String
+End Type
+
+Private Function StepRow(t As String, laneIdx As Integer, rowIdx As Integer, txt As String, callNum As Integer, isSys As Boolean) As StepDef
+    Dim s As StepDef
+    s.SType = UCase$(t)
+    s.Lane = laneIdx
+    s.Row = rowIdx
+    s.Caption = txt
+    s.Callout = callNum
+    s.IsSystem = isSys
+    StepRow = s
+End Function
+
+Private Function ConnRow(f As Integer, t As Integer, lbl As String) As ConnDef
+    Dim c As ConnDef
+    c.FromIndex = f
+    c.ToIndex = t
+    c.LabelText = lbl
+    ConnRow = c
+End Function
+
+' ==== Core builder ====
+Private Sub BuildPage(ByVal pageName As String, lanes() As String, steps() As StepDef, conns() As ConnDef, ByVal useVerticalSwimlanes As Boolean)
+    Dim doc As Visio.Document
+    Dim pg As Visio.Page
+    Set doc = Visio.ActiveDocument
+    Set pg = doc.Pages.Add
+    
+    pg.Name = pageName
+    With pg.PageSheet
+        .CellsU("PageWidth").ResultIU = PAGE_WIDTH_IN
+        .CellsU("PageHeight").ResultIU = PAGE_HEIGHT_IN
+    End With
+    
+    ' Load stencils
+    Dim basic As Visio.Document, connSten As Visio.Document
+    On Error Resume Next
+    Set basic = Application.Documents("BASFLO_U.VSSX")
+    If basic Is Nothing Then Set basic = Application.Documents.OpenEx("BASFLO_U.VSSX", visOpenRO)
+    Set connSten = Application.Documents("CONNEC_U.VSSX")
+    If connSten Is Nothing Then Set connSten = Application.Documents.OpenEx("CONNEC_U.VSSX", visOpenRO)
+    On Error GoTo 0
+    
+    ' Masters
+    Dim mProcess As Visio.Master, mDecision As Visio.Master, mTerm As Visio.Master, mDynConn As Visio.Master
+    Set mProcess = basic.Masters("Process")
+    Set mDecision = basic.Masters("Decision")
+    Set mTerm = basic.Masters("Terminator")
+    Set mDynConn = connSten.Masters("Dynamic connector")
+    
+    ' Origin (lower-left) in inches; Visio Y increases upward from bottom-left
+    Dim x0 As Double, y0 As Double
+    x0 = MARGIN_IN
+    y0 = MARGIN_IN
+    
+    ' Draw lane backgrounds + headers
+    Dim laneCount As Integer: laneCount = UBound(lanes) - LBound(lanes) + 1
+    Dim laneW As Double, laneH As Double
+    laneW = IIf(useVerticalSwimlanes, CONTENT_W_IN / laneCount, CONTENT_W_IN)
+    laneH = CONTENT_H_IN
+    
+    Dim i As Integer
+    For i = 1 To laneCount
+        If useVerticalSwimlanes Then
+            ' Lane rectangle
+            Dim lx As Double: lx = x0 + (i - 1) * laneW
+            Dim ly As Double: ly = y0
+            DrawLaneRect pg, lx, ly, laneW, laneH, lanes(i - 1)
+        Else
+            ' Horizontal lane headers only; two lanes stacked
+            Dim hdrY As Double
+            If i = 1 Then
+                hdrY = y0 + CONTENT_H_IN - LANE_HDR_H
+                DrawLaneHeader pg, x0, hdrY, laneW, LANE_HDR_H, lanes(i - 1)
+            Else
+                hdrY = y0 + CONTENT_H_IN - (LANE_HDR_H + 0.4 + 2# + LANE_HDR_H) ' matches earlier spacing
+                DrawLaneHeader pg, x0, hdrY, laneW, LANE_HDR_H, lanes(i - 1)
+            End If
+        End If
+    Next i
+    
+    ' Place step shapes
+    Dim idx As Integer
+    For idx = LBound(steps) To UBound(steps)
+        Dim s As StepDef: s = steps(idx)
+        Dim cx As Double, cy As Double, w As Double, h As Double
+        
+        Select Case s.SType
+            Case "PROC"
+                w = W_PROC: h = H_PROC
+            Case "DEC"
+                w = W_DEC: h = H_DEC
+            Case "TERM"
+                w = W_TERM: h = H_TERM
+            Case Else
+                w = W_PROC: h = H_PROC
+        End Select
+        
+        If useVerticalSwimlanes Then
+            cx = x0 + (s.Lane - 1) * laneW + laneW / 2
+            ' Row to Y: top-down layout – compute from headers
+            Dim topY As Double: topY = y0 + CONTENT_H_IN - (LANE_HDR_H + 0.33) ' small gap under header
+            cy = topY - (s.Row - 1) * (h + V_GAP) - h / 2
+        Else
+            ' Timeline: two rows: Row=1 (Requestor), Row=2 (System)
+            cx = x0 + (0.5 + (idx) * (w + H_GAP)) ' simple progressive layout; clamped later
+            If s.Row = 1 Then
+                cy = y0 + CONTENT_H_IN - (LANE_HDR_H + 0.33) - h / 2
+            Else
+                cy = y0 + CONTENT_H_IN - (LANE_HDR_H + 0.33 + 2# + LANE_HDR_H + 0.33) - h / 2
+            End If
+            ' Clamp within margins
+            If (cx + w / 2) > (x0 + CONTENT_W_IN) Then cx = x0 + CONTENT_W_IN - w / 2
+        End If
+        
+        ' Drop the appropriate master centered at (cx, cy)
+        Dim shp As Visio.Shape
+        Select Case s.SType
+            Case "PROC"
+                Set shp = pg.Drop(mProcess, cx, cy)
+                shp.CellsU("Width").ResultIU = w
+                shp.CellsU("Height").ResultIU = h
+                shp.CellsU("Char.Size").ResultIU = Pts(FS_PROC)
+                shp.Text = s.Caption
+                ' Color: process vs system
+                If s.IsSystem Then shp.CellsU("FillForegnd").FormulaU = RGBToFormula(RGB_SYS) _
+                                 Else shp.CellsU("FillForegnd").FormulaU = RGBToFormula(RGB_PROC)
+            Case "DEC"
+                Set shp = pg.Drop(mDecision, cx, cy)
+                shp.CellsU("Width").ResultIU = w
+                shp.CellsU("Height").ResultIU = h
+                shp.CellsU("Char.Size").ResultIU = Pts(FS_DEC)
+                shp.Text = s.Caption
+                shp.CellsU("FillForegnd").FormulaU = RGBToFormula(RGB_DEC)
+            Case "TERM"
+                Set shp = pg.Drop(mTerm, cx, cy)
+                shp.CellsU("Width").ResultIU = w
+                shp.CellsU("Height").ResultIU = h
+                shp.CellsU("Char.Size").ResultIU = Pts(FS_TERM)
+                shp.Text = s.Caption
+                shp.CellsU("FillForegnd").FormulaU = RGBToFormula(RGB_TERM)
+        End Select
+        s.ShapeID = shp.ID
+        steps(idx) = s
+        
+        ' Callout circle (simple ellipse + number)
+        DrawCallout pg, shp, CInt(s.Callout)
+    Next idx
+    
+    ' Connectors (dynamic) + label tags
+    Dim c As Integer
+    For c = LBound(conns) To UBound(conns)
+        Dim cd As ConnDef: cd = conns(c)
+        Dim sFrom As Visio.Shape, sTo As Visio.Shape
+        Set sFrom = pg.Shapes.ItemFromID(steps(cd.FromIndex - 1).ShapeID)
+        Set sTo = pg.Shapes.ItemFromID(steps(cd.ToIndex - 1).ShapeID)
+        Dim dc As Visio.Shape
+        Set dc = pg.Drop(mDynConn, 0, 0)
+        GlueMidToMid sFrom, sTo, dc
+        If Len(cd.LabelText) > 0 Then
+            DrawLabelTag pg, dc, cd.LabelText
+        End If
+    Next c
+    
+    ' Legend
+    DrawLegend pg, x0, y0, steps, useVerticalSwimlanes
+    
+    ' Fit view
+    Application.ActiveWindow.ViewFit = visFitPage
+End Sub
+
+' ==== Drawing helpers ====
+Private Sub DrawLaneRect(pg As Visio.Page, x As Double, y As Double, w As Double, h As Double, hdr As String)
+    ' background
+    Dim bg As Visio.Shape
+    Set bg = pg.DrawRectangle(x, y, x + w, y + h)
+    Colorize bg, RGB_LANE_BG, RGB_BORDER
+    bg.CellsU("LineWeight").ResultIU = 0.02
+    
+    ' header band at top of lane
+    Dim hy As Double: hy = y + h - LANE_HDR_H
+    Dim hdrRect As Visio.Shape
+    Set hdrRect = pg.DrawRectangle(x, hy, x + w, hy + LANE_HDR_H)
+    Colorize hdrRect, RGB_LANE_HDR, RGB_BORDER
+    hdrRect.CellsU("LineWeight").ResultIU = 0.02
+    hdrRect.Text = hdr
+    hdrRect.CellsU("Char.Size").ResultIU = Pts(FS_HDR)
+    CenterText hdrRect
+End Sub
+
+Private Sub DrawLaneHeader(pg As Visio.Page, x As Double, y As Double, w As Double, h As Double, hdr As String)
+    Dim r As Visio.Shape
+    Set r = pg.DrawRectangle(x, y, x + w, y + h)
+    Colorize r, RGB_LANE_HDR, RGB_BORDER
+    r.CellsU("LineWeight").ResultIU = 0.02
+    r.Text = hdr
+    r.CellsU("Char.Size").ResultIU = Pts(FS_HDR)
+    CenterText r
+End Sub
+
+Private Sub DrawCallout(pg As Visio.Page, host As Visio.Shape, num As Integer)
+    Dim r As Double: r = 0.20
+    Dim off As Double: off = 0.10
+    Dim cx As Double, cy As Double
+    cx = host.CellsU("PinX").ResultIU - host.CellsU("Width").ResultIU / 2 + off + r
+    cy = host.CellsU("PinY").ResultIU + host.CellsU("Height").ResultIU / 2 - off - r
+    Dim el As Visio.Shape
+    Set el = pg.DrawOval(cx - r, cy - r, cx + r, cy + r)
+    Colorize el, RGB_WHITE, RGB_BORDER
+    el.CellsU("LineWeight").ResultIU = 0.02
+    el.Text = CStr(num)
+    el.CellsU("Char.Size").ResultIU = Pts(FS_CALLOUT)
+    CenterText el
+End Sub
+
+Private Sub DrawLegend(pg As Visio.Page, x0 As Double, y0 As Double, steps() As StepDef, ByVal isSwim As Boolean)
+    ' Place legend at bottom-left inside content
+    Dim lx As Double: lx = x0
+    Dim ly As Double: ly = y0 + 0.25
+    Dim t As Visio.Shape
+    Set t = pg.DrawRectangle(lx, ly, lx + CONTENT_W_IN, ly + 1.2)
+    Colorize t, RGB_WHITE, RGB_BORDER
+    t.CellsU("LineWeight").ResultIU = 0.01
+    t.Text = "Callout Table:" & vbCrLf & LegendLines(steps)
+    t.CellsU("Char.Size").ResultIU = Pts(FS_LEGEND)
+    ' left-aligned
+    t.CellsU("Para.HorzAlign").FormulaU = "0"
+End Sub
+
+Private Function LegendLines(steps() As StepDef) As String
+    Dim i As Integer, s As String
+    s = ""
+    For i = LBound(steps) To UBound(steps)
+        s = s & steps(i).Callout & "  " & ShortLabel(steps(i).Caption) & " — " & LongHint(steps(i).Caption) & vbCrLf
+    Next i
+    LegendLines = s
+End Function
+
+Private Function ShortLabel(full As String) As String
+    Dim m As String: m = full
+    m = Replace(m, "Create/Update CI & Relationships", "CMDB")
+    m = Replace(m, "Assign IP / DNS", "IP/DNS")
+    ShortLabel = m
+End Function
+
+Private Function LongHint(full As String) As String
+    Select Case full
+        Case "Start": LongHint = "User initiates request"
+        Case "Submit VM Request": LongHint = "Submit VM request in portal"
+        Case "Validate Form & Policy": LongHint = "SN validates form and policy"
+        Case "Approval Needed?": LongHint = "Approval required?"
+        Case "Review & Approve": LongHint = "Approver reviews & approves"
+        Case "Create Work Order": LongHint = "SN creates work order"
+        Case "Provision VM": LongHint = "Platform provisions VM"
+        Case "Assign IP / DNS": LongHint = "Assign IP and DNS"
+        Case "Create/Update CI & Relationships": LongHint = "Create/update CI/relationships"
+        Case "Notify Requestor": LongHint = "Notify requestor of completion"
+        Case "End": LongHint = "Process ends"
+        Case "Submit Request": LongHint = "User submits request"
+        Case "Validate / Triage": LongHint = "System validates/triages the request"
+        Case "Approve": LongHint = "User approves (if required)"
+        Case "Assign IP/DNS": LongHint = "Assign IP and DNS"
+        Case "CMDB Update": LongHint = "Update CMDB / relationships"
+        Case "Notification": LongHint = "System notifies requestor"
+        Case Else: LongHint = full
+    End Select
+End Function
+
+Private Sub GlueMidToMid(sFrom As Visio.Shape, sTo As Visio.Shape, dc As Visio.Shape)
+    ' Glue dynamic connector center→center then re-route
+    Dim fromCell As Visio.Cell, toCell As Visio.Cell
+    Set fromCell = dc.CellsU("BeginX")
+    Set toCell = dc.CellsU("EndX")
+    fromCell.GlueTo sFrom.CellsU("PinX")
+    toCell.GlueTo sTo.CellsU("PinX")
+    dc.CellsU("Rounding").ResultIU = 0
+    dc.CellsU("LineWeight").ResultIU = 0.03
+    ' Force right-angle routing
+    dc.CellsU("ConLineRouteExt").FormulaU = "1"
+End Sub
+
+Private Sub DrawLabelTag(pg As Visio.Page, conn As Visio.Shape, ByVal txt As String)
+    ' Place a small white rounded rectangle near connector mid-point
+    Dim midX As Double, midY As Double
+    Call ConnectorMid(conn, midX, midY)
+    Dim w As Double: w = 0.45
+    Dim h As Double: h = 0.24
+    Dim r As Visio.Shape
+    Set r = pg.DrawRectangle(midX - w / 2, midY - h / 2, midX + w / 2, midY + h / 2)
+    Colorize r, RGB_WHITE, RGB_BORDER
+    r.CellsU("Rounding").ResultIU = 0.08
+    r.CellsU("Char.Size").ResultIU = Pts(FS_LABEL)
+    r.Text = txt
+    CenterText r
+End Sub
+
+Private Sub ConnectorMid(conn As Visio.Shape, ByRef x As Double, ByRef y As Double)
+    ' Sample along geometry for midpoint; fallback to Pin if geometry unavailable
+    On Error GoTo Fallback
+    Dim sec As Visio.Section
+    Dim gx As Double, gy As Double
+    gx = conn.CellsU("LocPinX").ResultIU ' not perfect, but adequate
+    x = conn.CellsU("PinX").ResultIU
+    y = conn.CellsU("PinY").ResultIU
+    Exit Sub
+Fallback:
+    x = conn.CellsU("PinX").ResultIU
+    y = conn.CellsU("PinY").ResultIU
+End Sub
+
+' ==== Utilities ====
+Private Sub CenterText(shp As Visio.Shape)
+    shp.CellsU("Para.HorzAlign").FormulaU = "1"    ' center
+    shp.CellsU("VerticalAlign").FormulaU = "1"     ' middle
+End Sub
+
+Private Sub Colorize(shp As Visio.Shape, fillRgb As Long, lineRgb As Long)
+    shp.CellsU("FillForegnd").FormulaU = RGBToFormula(fillRgb)
+    shp.CellsU("LineColor").FormulaU = RGBToFormula(lineRgb)
+End Sub
+
+Private Function RGBToFormula(rgb As Long) As String
+    RGBToFormula = "RGB(" & (rgb And &HFF) & "," & ((rgb \ &H100) And &HFF) & "," & ((rgb \ &H10000) And &HFF) & ")"
+End Function
+
+Private Function Pts(sz As Integer) As Double
+    Pts = sz / 72#
+End Function
