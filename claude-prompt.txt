@@ -1,0 +1,117 @@
+You are an Enterprise Architecture expert operating at Principal/Distinguished Architect level.
+
+Your task is to produce a comprehensive, structured enterprise architecture document focused on identifying and consolidating duplicated application capabilities across an enterprise environment.
+
+CONTEXT:
+Multiple enterprise applications currently implement similar capabilities independently (example: three different file routing mechanisms across three separate applications). The goal is to identify these redundancies and define a strategy to consolidate them into standardized enterprise services or platforms.
+
+OBJECTIVES:
+
+1. Identify common enterprise application components that are frequently duplicated.
+2. Define how these components should be consolidated into shared enterprise services.
+3. Provide strategic, architectural, and operational guidance for implementation.
+
+OUTPUT REQUIREMENTS:
+
+SECTION 1 — CONSOLIDATION CANDIDATE INVENTORY
+Provide a categorized table of common components that are strong candidates for consolidation. Include (but do not limit to):
+
+* File routing / transfer (MFT)
+* Integration middleware / ESB / iPaaS
+* Authentication / Identity / SSO
+* Authorization / RBAC / ABAC
+* Logging / Observability
+* Monitoring / Alerting
+* Notification services (email, SMS, push)
+* API Gateway / API Management
+* Batch scheduling / job orchestration
+* Workflow / BPM engines
+* Rules engines
+* Document generation / management
+* Search / indexing
+* Caching layers
+* Messaging / event streaming
+* Data transformation / ETL / ELT
+* Reporting / analytics
+* Configuration management
+* Secrets management
+
+For EACH component include:
+
+* Description
+* Typical duplication pattern (how/why it exists in multiple apps)
+* Current-state anti-patterns
+* Target-state consolidation model (shared service, platform, SaaS, COTS, etc.)
+
+SECTION 2 — CONSOLIDATION ANALYSIS (DETAILED TABLE)
+For each component, provide:
+
+* Business benefits (cost reduction, standardization, risk reduction)
+* Technical benefits (scalability, resilience, performance)
+* Risks and trade-offs (coupling, blast radius, migration complexity)
+* Architectural considerations:
+
+  * High availability / disaster recovery
+  * Multi-tenancy vs isolation
+  * Security domains and boundaries
+  * Compliance (regulatory, audit, data residency)
+  * Latency and performance impact
+* When NOT to consolidate (critical nuance)
+
+SECTION 3 — TARGET STATE ARCHITECTURE
+Describe (textually) a reference architecture that includes:
+
+* Centralized shared services layer
+* Application consumption patterns (API-first, event-driven, SDK-based)
+* Data flow and control flow
+* Security boundaries and trust zones
+* Integration patterns (sync vs async)
+* Governance enforcement points
+
+SECTION 4 — CONSOLIDATION ROADMAP
+Provide a phased, realistic execution model:
+
+* Phase 1: Discovery & Inventory
+* Phase 2: Rationalization & Classification
+* Phase 3: Target Platform Selection / Build
+* Phase 4: Migration Strategy (strangler pattern, parallel run, etc.)
+* Phase 5: Governance & Enforcement
+
+Include:
+
+* Decision criteria
+* Migration prioritization model
+* Risk mitigation strategies
+* Success metrics (KPIs)
+
+SECTION 5 — EXECUTIVE POSITIONING
+Provide concise, executive-level talking points:
+
+* Financial impact
+* Risk reduction
+* Operational efficiency
+* Strategic alignment (cloud, platform engineering, AI readiness)
+
+SECTION 6 — DISCOVERY QUESTIONS (CRITICAL)
+Provide a structured set of questions required BEFORE making consolidation decisions, grouped by:
+
+* Application architecture
+* Data sensitivity and classification
+* Integration patterns
+* Performance and SLAs
+* Regulatory requirements
+* Ownership and operational model
+* Existing vendor/tooling constraints
+
+Be exhaustive and precise. These questions should expose hidden complexity.
+
+OUTPUT STYLE:
+
+* Highly structured
+* Use tables where appropriate
+* No fluff, no generic statements
+* Focus on real-world enterprise applicability
+* Include trade-offs and hard truths
+* Assume large-scale, regulated enterprise environment
+
+Do NOT summarize. Go deep and be explicit.
